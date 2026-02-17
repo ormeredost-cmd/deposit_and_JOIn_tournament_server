@@ -36,6 +36,56 @@ app.use(express.json());
 /* ============================= IN-MEMORY ROOMS + SUPABASE ============================= */
 let tournamentRooms = {};
 
+/* ============================= 🔥 MY BALANCE ENDPOINT (5001 COMPATIBLE) ============================= */
+app.get("/api/my-balance", async (req, res) => {
+  try {
+    const { profileId } = req.query;
+    if (!profileId) {
+      console.log("❌ No profileId provided");
+      return res.json({ balance: 0 });
+    }
+    
+    const { data } = await supabase
+      .from("registeruser")
+      .select("balance")
+      .eq("profile_id", profileId)
+      .single();
+    
+    const balance = data?.balance || 0;
+    console.log("💰 BALANCE FETCH:", profileId, "→ ₹", balance);
+    res.json({ balance });
+  } catch (err) {
+    console.error("❌ BALANCE ERROR:", err);
+    res.json({ balance: 0 });
+  }
+});
+
+/* ============================= 🔥 NEW ENDPOINT - CLEAR APPROVED DEPOSITS (WALLET SAFE!) ============================= */
+app.delete("/api/admin/clear-approved/:profileId", async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    
+    // 🔥 SIRF APPROVED deposits delete karenge (WALLET BALANCE SAFE!)
+    const { data: deletedDeposits, count } = await supabase
+      .from("DepositUser")
+      .delete()
+      .eq("profile_id", profileId)
+      .eq("status", "approved")
+      .select("amount, date_ist");
+
+    console.log(`🗑️ APPROVED HISTORY CLEARED:`, profileId, `${count || 0} deposits deleted (WALLET SAFE ✅)`);
+    
+    res.json({ 
+      success: true, 
+      cleared: count || 0,
+      message: "Approved deposits cleared! Wallet balance unchanged ✅"
+    });
+  } catch (err) {
+    console.error("❌ CLEAR APPROVED ERROR:", err);
+    res.status(500).json({ success: false, message: "Clear failed" });
+  }
+});
+
 /* ============================= HEALTH CHECK ============================= */
 app.get("/health", (req, res) => {
   res.json({
@@ -44,11 +94,14 @@ app.get("/health", (req, res) => {
     supabase: "✅ Connected",
     rooms: Object.keys(tournamentRooms).length,
     profileFields: "✅ AUTO FROM DEPOSITUSER",
-    roomSave: "✅ SUPABASE PERMANENT"
+    roomSave: "✅ SUPABASE PERMANENT",
+    balanceSync: "✅ ACTIVE",
+    myBalance: "✅ ACTIVE",
+    clearApproved: "✅ WALLET SAFE ENDPOINT ACTIVE 🔥"
   });
 });
 
-/* ============================= TOURNAMENT JOIN → SUPABASE (AUTO-PROFILE 🔥) ============================= */
+/* ============================= TOURNAMENT ENDPOINTS (UNCHANGED) ============================= */
 app.post("/api/join-tournament", async (req, res) => {
   const data = req.body;
   
@@ -161,7 +214,6 @@ app.post("/api/join-tournament", async (req, res) => {
   }
 });
 
-/* ============================= CHECK JOIN STATUS ============================= */
 app.get("/api/check-join/:tournamentId", async (req, res) => {
   try {
     const bgmiId = req.query.bgmiId;
@@ -181,7 +233,6 @@ app.get("/api/check-join/:tournamentId", async (req, res) => {
   }
 });
 
-/* ============================= SLOTS COUNT ============================= */
 app.get("/api/tournament-slots-count/:tournamentId", async (req, res) => {
   try {
     const { count } = await supabase
@@ -199,7 +250,6 @@ app.get("/api/tournament-slots-count/:tournamentId", async (req, res) => {
   }
 });
 
-/* ============================= MY MATCHES (SUPABASE ROOMS FIRST) ============================= */
 app.get("/api/my-matches", async (req, res) => {
   try {
     const bgmiId = req.query.bgmiId;
@@ -216,7 +266,6 @@ app.get("/api/my-matches", async (req, res) => {
       return res.json({ matches: [] });
     }
 
-    // 🔥 SUPABASE FIRST → MEMORY BACKUP (MyMatches ko rooms dikhane ke liye)
     const matchesWithRooms = (matches || []).map(match => ({
       ...match,
       roomId: match.room_id || tournamentRooms[match.tournament_id]?.roomId || "",
@@ -230,7 +279,6 @@ app.get("/api/my-matches", async (req, res) => {
   }
 });
 
-/* ============================= 🔥 FIXED ADMIN ENDPOINTS - NO ROOM DATA ============================= */
 app.get("/api/admin/joins", async (req, res) => {
   try {
     const { data } = await supabase
@@ -238,7 +286,6 @@ app.get("/api/admin/joins", async (req, res) => {
       .select("*")
       .order("joined_at", { ascending: false });
 
-    // ✅ FIXED: Room fields HATA DIYE - Frontend inputs KHALI rahenge
     const cleanJoins = (data || []).map(j => {
       const { room_id, room_password, ...rest } = j;
       return rest;
@@ -252,7 +299,6 @@ app.get("/api/admin/joins", async (req, res) => {
   }
 });
 
-/* ============================= 🔥 ROOM SAVE → SUPABASE + MEMORY (PERMANENT!) ============================= */
 app.put("/api/admin/set-room-by-tournament", async (req, res) => {
   const { tournamentId, roomId, roomPassword } = req.body;
   
@@ -261,13 +307,11 @@ app.put("/api/admin/set-room-by-tournament", async (req, res) => {
   }
   
   try {
-    // 🔥 1. INSTANT MEMORY SAVE (MyMatches instant)
     tournamentRooms[tournamentId] = {
       roomId: roomId || "",
       roomPassword: roomPassword || ""
     };
     
-    // 🔥 2. PERMANENT SUPABASE SAVE (Admin + Restart safe)
     const { error } = await supabase
       .from("tournament_joins")
       .update({ 
@@ -317,7 +361,7 @@ app.delete("/api/admin/tournament/:id", async (req, res) => {
   }
 });
 
-/* ============================= DEPOSIT ENDPOINTS (UNCHANGED) ============================= */
+/* ============================= 🔥 FIXED DEPOSIT ENDPOINTS (BALANCE SYNC PERFECT!) ============================= */
 app.post("/api/deposit", async (req, res) => {
   const { profileId, username, email, amount, utr } = req.body;
 
@@ -349,6 +393,7 @@ app.post("/api/deposit", async (req, res) => {
       return res.status(500).json({ success: false, message: error.message });
     }
 
+    console.log("✅ NEW DEPOSIT:", profileId, "₹", amount, "→ PENDING");
     res.json({ success: true, deposit: data });
   } catch (err) {
     console.error(err);
@@ -356,6 +401,7 @@ app.post("/api/deposit", async (req, res) => {
   }
 });
 
+/* 🔥 APPROVE = WALLET + REGISTERUSER BALANCE UPDATE (FIXED!) */
 app.put("/api/admin/deposit-status/:id", async (req, res) => {
   const { status } = req.body;
   
@@ -364,27 +410,81 @@ app.put("/api/admin/deposit-status/:id", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabase
+    // 1. Deposit details fetch kar
+    const { data: deposit, error: depositError } = await supabase
+      .from("DepositUser")
+      .select("*")
+      .eq("id", req.params.id)
+      .single();
+
+    if (depositError || !deposit) {
+      console.error("❌ Deposit not found:", req.params.id);
+      return res.status(500).json({ success: false, message: "Deposit not found" });
+    }
+
+    console.log("🔍 DEPOSIT FOUND:", deposit.profile_id, "₹", deposit.amount, deposit.status, "→", status);
+
+    // 🔥 2. APPROVE HUA TO REGISTERUSER BALANCE ADD KAR (ONLY PENDING!)
+    if (status === "approved" && deposit.status === "pending") {
+      // Current balance check kar
+      const { data: user } = await supabase
+        .from("registeruser")
+        .select("balance")
+        .eq("profile_id", deposit.profile_id)
+        .single();
+
+      const currentBalance = user?.balance || 0;
+      const newBalance = currentBalance + deposit.amount;
+
+      console.log("💰 BEFORE:", currentBalance, "→ ADDING ₹", deposit.amount);
+
+      // Balance update kar
+      const { error: balanceError } = await supabase
+        .from("registeruser")
+        .update({ balance: newBalance })
+        .eq("profile_id", deposit.profile_id);
+
+      if (balanceError) {
+        console.error("❌ BALANCE UPDATE FAILED:", balanceError);
+        return res.status(500).json({ success: false, message: "Balance update failed" });
+      }
+
+      console.log("✅ BALANCE SYNC SUCCESS:", deposit.profile_id, "₹", currentBalance, "→", newBalance);
+    } else {
+      console.log("ℹ️ SKIP BALANCE UPDATE:", deposit.status, "→", status, "(not pending→approved)");
+    }
+
+    // 3. Deposit status update kar
+    const { data: updatedDeposit, error: statusError } = await supabase
       .from("DepositUser")
       .update({ status })
       .eq("id", req.params.id)
       .select()
       .single();
 
-    if (error) {
-      console.error("❌ STATUS UPDATE ERROR:", error);
-      return res.status(500).json({ success: false, message: error.message });
+    if (statusError) {
+      console.error("❌ STATUS UPDATE ERROR:", statusError);
+      return res.status(500).json({ success: false, message: statusError.message });
     }
 
-    res.json({ success: true, deposit: data });
+    console.log("✅ DEPOSIT STATUS:", deposit.profile_id, "→", status);
+    res.json({ success: true, deposit: updatedDeposit });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ APPROVE ERROR:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
+/* 🔥 DELETE = SIRF HISTORY CLEAR (BALANCE SAFE) */
 app.delete("/api/admin/deposit/:id", async (req, res) => {
   try {
+    const { data: deposit } = await supabase
+      .from("DepositUser")
+      .select("profile_id, status, amount")
+      .eq("id", req.params.id)
+      .single();
+
     const { error } = await supabase
       .from("DepositUser")
       .delete()
@@ -395,6 +495,7 @@ app.delete("/api/admin/deposit/:id", async (req, res) => {
       return res.status(500).json({ success: false, message: error.message });
     }
 
+    console.log("🗑️ DEPOSIT DELETED:", deposit?.profile_id, "₹", deposit?.amount, "(BALANCE SAFE)");
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -424,9 +525,12 @@ app.get("/api/admin/deposits", async (req, res) => {
 /* ============================= SERVER START ============================= */
 const PORT = process.env.PORT || 5002;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("🔥 BGMI Server running on port", PORT);
+  console.log("🔥 BGMI Server (5002) running on port", PORT);
   console.log("✅ Health: http://localhost:5002/health");
   console.log("✅ Tournament Joins → SUPABASE (AUTO-PROFILE)");
   console.log("✅ ROOMS → SUPABASE PERMANENT SAVE! 🔥");
+  console.log("✅ BALANCE SYNC → REGISTERUSER + WALLET! 💰");
+  console.log("✅ MY-BALANCE ENDPOINT → ACTIVE!");
+  console.log("✅ CLEAR APPROVED → WALLET SAFE! 🧹");
   console.log("✅ Admin inputs → KHALI | MyMatches → Rooms dikhenge!");
 });
