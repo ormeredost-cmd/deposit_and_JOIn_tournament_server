@@ -97,11 +97,42 @@ app.get("/health", (req, res) => {
     roomSave: "✅ SUPABASE PERMANENT",
     balanceSync: "✅ ACTIVE",
     myBalance: "✅ ACTIVE",
-    clearApproved: "✅ WALLET SAFE ENDPOINT ACTIVE 🔥"
+    clearApproved: "✅ WALLET SAFE ENDPOINT ACTIVE 🔥",
+    rollback: "✅ TOURNAMENT ROLLBACK ACTIVE 🚀"
   });
 });
 
-/* ============================= TOURNAMENT ENDPOINTS (UNCHANGED) ============================= */
+/* ============================= 🔥 ROLLBACK ENDPOINT (NEW - SAFETY FOR WALLET FAILURES!) ============================= */
+app.post("/api/rollback-join/:tournamentId", async (req, res) => {
+  try {
+    const { tournamentId } = req.params;
+    const { bgmiId } = req.query;
+    
+    if (!bgmiId) {
+      return res.status(400).json({ success: false, message: "bgmiId required" });
+    }
+
+    // Delete the failed join record (recent most)
+    const { count } = await supabase
+      .from("tournament_joins")
+      .delete()
+      .eq("tournament_id", tournamentId)
+      .eq("bgmi_id", bgmiId);
+
+    console.log("🔄 ROLLBACK SUCCESS:", tournamentId, bgmiId, `${count || 0} records deleted`);
+    
+    res.json({ 
+      success: true, 
+      deleted: count || 0,
+      message: "✅ Tournament join rolled back successfully!"
+    });
+  } catch (err) {
+    console.error("❌ ROLLBACK ERROR:", err);
+    res.status(500).json({ success: false, message: "Rollback failed" });
+  }
+});
+
+/* ============================= TOURNAMENT ENDPOINTS ============================= */
 app.post("/api/join-tournament", async (req, res) => {
   const data = req.body;
   
@@ -531,6 +562,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("✅ ROOMS → SUPABASE PERMANENT SAVE! 🔥");
   console.log("✅ BALANCE SYNC → REGISTERUSER + WALLET! 💰");
   console.log("✅ MY-BALANCE ENDPOINT → ACTIVE!");
+  console.log("✅ ROLLBACK ENDPOINT → ACTIVE! 🚀");
   console.log("✅ CLEAR APPROVED → WALLET SAFE! 🧹");
   console.log("✅ Admin inputs → KHALI | MyMatches → Rooms dikhenge!");
 });
